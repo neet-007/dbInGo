@@ -3,6 +3,7 @@ package bplustree
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 )
 
 /*
@@ -282,4 +283,47 @@ func nodeInsert(tree *BTree, new BNode, node BNode, idx uint16, key []byte, val 
 	tree.del(kptr)
 
 	nodeReplaceKidN(tree, new, node, idx, split[:nsplit]...)
+}
+
+func checkLimit(key []byte, val []byte) error {
+	if len(key) > BTREE_MAX_KEY_SIZE {
+		return fmt.Errorf("key length must be less than or equal %d", BTREE_MAX_KEY_SIZE)
+	}
+	if len(val) > BTREE_MAX_VAL_SIZE {
+		return fmt.Errorf("vak length must be less than or equal %d", BTREE_MAX_VAL_SIZE)
+	}
+
+	return nil
+}
+
+func (tree *BTree) Insert(key []byte, val []byte) error {
+	if err := checkLimit(key, val); err != nil {
+		return err
+	}
+
+	if tree.root == 0 {
+		root := BNode(make([]byte, BTREE_PAGE_SIZE))
+		root.setHeader(BNODE_LEAF, 2)
+		nodeAppedKV(root, 0, 0, nil, nil)
+		nodeAppedKV(root, 1, 0, key, val)
+		tree.root = tree.new(root)
+		return nil
+	}
+
+	node := treeInsert(tree, tree.get(tree.root), key, val)
+
+	nsplit, split := nodeSplit3(node)
+	if nsplit > 1 {
+		root := BNode(make([]byte, BTREE_PAGE_SIZE))
+		root.setHeader(BNODE_NODE, nsplit)
+
+		for i, knode := range split[:nsplit] {
+			ptr, key := tree.new(knode), knode.getKey(0)
+			nodeAppedKV(node, uint16(i), ptr, key, nil)
+		}
+		tree.root = tree.new(root)
+	} else {
+		tree.root = tree.new(split[0])
+	}
+	return nil
 }
