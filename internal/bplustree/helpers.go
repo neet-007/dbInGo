@@ -353,6 +353,60 @@ func shouldMerge(
 	return 0, BNode{}
 }
 
+// delete a key from the tree
+func treeDelete(tree *BTree, node BNode, key []byte) BNode {
+	new := BNode(make([]byte, 2*BTREE_PAGE_SIZE))
+
+	idx := nodeLookupLE(node, key)
+
+	switch node.btype() {
+	case BNODE_LEAF:
+		if bytes.Equal(key, node.getKey(idx)) {
+			leafDelete(new, node, idx)
+		} else {
+			leafDelete(new, node, idx)
+		}
+	case BNODE_NODE:
+		nodeMerge(new, node, node)
+	default:
+		panic("bad node")
+	}
+
+	return new
+}
+
+func nodeDelete(tree *BTree, node BNode, idx uint16, key []byte) BNode {
+	kptr := node.getPtr(idx)
+	updated := treeDelete(tree, tree.get(kptr), key)
+	if len(updated) == 0 {
+		return BNode{}
+	}
+	tree.del(kptr)
+
+	new := BNode(make([]byte, BTREE_PAGE_SIZE))
+	mergeDir, sibling := shouldMerge(tree, node, idx, updated)
+	switch {
+	case mergeDir < 0:
+		merged := BNode(make([]byte, BTREE_PAGE_SIZE))
+		nodeMerge(merged, sibling, updated)
+		tree.del(node.getPtr(idx - 1))
+		nodeReplace2Kid(new, node, idx-1, tree.new(merged), merged.getKey(0))
+	case mergeDir > 0:
+		merged := BNode(make([]byte, BTREE_PAGE_SIZE))
+		nodeMerge(merged, updated, sibling)
+		tree.del(node.getPtr(idx + 1))
+		nodeReplace2Kid(new, node, idx, tree.new(merged), merged.getKey(0))
+	case mergeDir == 0 && updated.nkeys() == 0:
+		if node.nkeys() != 0 || idx != 0 {
+			panic("after mergin num of node keys must equal 0 and idx is 0")
+		}
+		new.setHeader(BNODE_NODE, 0)
+	case mergeDir == 0 && updated.nkeys() > 0:
+		nodeReplaceKidN(tree, new, node, idx, updated)
+	}
+	return new
+}
+
 // remove a key from a leaf node
 func leafDelete(new BNode, old BNode, idx uint16)
 
